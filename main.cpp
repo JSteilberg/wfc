@@ -13,7 +13,7 @@
 	mkdir -p build
 
 	CXX=g++
-	CPPFLAGS="--std=c++14 -Wall -Wno-sign-compare -O2 -g -DNDEBUG"
+	CPPFLAGS="--std=c++14 -Wall -Wno-sign-compare -O3"
 	LDLIBS="-lstdc++ -lpthread -ldl"
 	OBJECTS=""
 
@@ -37,7 +37,9 @@
 	exit
 #endif
 
+#include <iostream>
 #include <algorithm>
+#include <fstream>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -171,6 +173,7 @@ public:
 	virtual bool propagate(Output* output) const = 0;
 	virtual bool on_boundary(int x, int y) const = 0;
 	virtual Image image(const Output& output) const = 0;
+  virtual std::vector<std::vector<int>> data(const Output& output) const = 0;
 };
 
 // ----------------------------------------------------------------------------
@@ -195,6 +198,8 @@ public:
 	}
 
 	Image image(const Output& output) const override;
+
+  std::vector<std::vector<int>> data(const Output& output) const override;
 
 	Graphics graphics(const Output& output) const;
 
@@ -225,6 +230,8 @@ public:
 	}
 
 	Image image(const Output& output) const override;
+
+  virtual std::vector<std::vector<int>> data(const Output& output) const override;
 
 private:
 	Array3D<Bool>                  _propagator; // 4 X _num_patterns X _num_patterns
@@ -499,6 +506,10 @@ Image OverlappingModel::image(const Output& output) const
 	return upsample(image_from_graphics(graphics(output), _palette));
 }
 
+
+std::vector<std::vector<int>> OverlappingModel::data(const Output& output) const  {
+  return std::vector<std::vector<int>>();
+}
 // ----------------------------------------------------------------------------
 
 Tile rotate(const Tile& in_tile, const size_t tile_size)
@@ -745,6 +756,25 @@ Image TileModel::image(const Output& output) const
 	}
 
 	return result;
+}
+
+std::vector<std::vector<int>> TileModel::data(const Output& output) const {
+  std::vector<std::vector<int>> sum;
+  //std::fill(sum.begin(), sum.end(), 0);
+  sum.resize(_width);
+
+  //std::cout << sum << std::endl;
+  for (size_t x = 0; x < _width; ++x) {
+    sum[x].resize(_width);
+    for (size_t y = 0; y < _height; ++y) {
+      for (const auto t : irange(_num_patterns)) {
+        if (output._wave.get(x, y, t)) {
+          sum[x][y] = t;
+        }
+      }
+    }
+  }
+  return sum;
 }
 
 // ----------------------------------------------------------------------------
@@ -1014,9 +1044,22 @@ void run_and_write(const Options& options, const std::string& name, const config
 
 			if (result == Result::kSuccess) {
 				const auto image = model.image(output);
+        const auto data_ = model.data(output);
+
+        const auto d_out_path = emilib::strprintf("output/%s_%lu.dat", name.c_str(), i);
+        std::ofstream outfile(d_out_path);
+
+        for (int x = 0; x < data_.size(); ++x) {
+          for (int y = 0; y < data_[x].size(); ++y) {
+            outfile << data_[x][y] << "\t";
+          }
+          outfile << std::endl;
+        }
+        outfile.close();
+
 				const auto out_path = emilib::strprintf("output/%s_%lu.png", name.c_str(), i);
-				CHECK_F(stbi_write_png(out_path.c_str(), image.width(), image.height(), 4, image.data(), 0) != 0,
-				        "Failed to write image to %s", out_path.c_str());
+				//CHECK_F(stbi_write_png(out_path.c_str(), image.width(), image.height(), 4, image.data(), 0) != 0,
+				//        "Failed to write image to %s", out_path.c_str());
 				break;
 			}
 		}
